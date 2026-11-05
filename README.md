@@ -34,4 +34,5 @@ add_filter( 'wprs_target_post_types', function ( $post_types ) {
 
 ## Requirements
 
+- WordPress 5.3+ (uses `wp_date()`)
 - PHP 7.0+ (uses `random_int()`)

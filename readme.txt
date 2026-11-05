@@ -1,6 +1,7 @@
 === wp-random-slug ===
 Tags: slug, permalink, random
-Requires at least: 5.0
+Requires at least: 5.3
+Tested up to: 7.1
 Requires PHP: 7.0
 Stable tag: 0.0.2
 License: GPLv2 or later

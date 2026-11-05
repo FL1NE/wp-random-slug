@@ -4,9 +4,10 @@
 * Plugin URI: https://github.com/FL1NE/wp-random-slug/
 * Description: Auto slug generator for Wordpress.
 * Version: 0.0.2
+* Requires at least: 5.3
 * Requires PHP: 7.0
 * Author: Tomoki SHISHIKURA (FL1NE)
-* Author URI: tomoki-shishikura.com
+* Author URI: https://tomoki-shishikura.com
 * License: GPLv2 or later
 * License URI: https://www.gnu.org/licenses/gpl-2.0.html
 * Text Domain: wp-random-slug
