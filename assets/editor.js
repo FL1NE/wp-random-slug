@@ -14,15 +14,15 @@
 	// PluginDocumentSettingPanel moved from wp.editPost to wp.editor in WordPress 6.6.
 	var Panel = ( wp.editor && wp.editor.PluginDocumentSettingPanel ) || wp.editPost.PluginDocumentSettingPanel;
 
-	// Drafts get their slug automatically when published, so the panel is only for these statuses.
-	var REGENERABLE_STATUSES = [ 'publish', 'private', 'future' ];
+	// A brand-new post that has not been saved yet (auto-draft) has nothing to regenerate.
+	var HIDDEN_STATUSES = [ 'auto-draft', 'trash' ];
 
 	function RandomSlugPanel() {
 		var busyState = useState( false );
 		var busy = busyState[ 0 ];
 		var setBusy = busyState[ 1 ];
 
-		// The saved status, not the edited one: a draft being published still has no slug in the database.
+		// The saved status, not the edited one.
 		var post = useSelect( function ( select ) {
 			var editor = select( 'core/editor' );
 			return {
@@ -33,13 +33,13 @@
 		var editPost = useDispatch( 'core/editor' ).editPost;
 		var notices = useDispatch( 'core/notices' );
 
-		if ( REGENERABLE_STATUSES.indexOf( post.status ) === -1 ) {
+		if ( HIDDEN_STATUSES.indexOf( post.status ) !== -1 ) {
 			return null;
 		}
 
 		function regenerate() {
 			var message = __(
-				'Regenerate the slug? The URL will change after you click "Update". Visitors to the old URL are redirected automatically.',
+				'Regenerate the slug? The URL changes once you save the post. If it is already published, visitors to the old URL are redirected automatically.',
 				'wp-random-slug'
 			);
 			if ( ! window.confirm( message ) ) {
@@ -50,7 +50,7 @@
 				.then( function ( result ) {
 					editPost( { slug: result.slug } );
 					notices.createSuccessNotice(
-						__( 'Slug replaced. Click "Update" to save it.', 'wp-random-slug' ),
+						__( 'Slug replaced. Save the post to apply it.', 'wp-random-slug' ),
 						{ type: 'snackbar' }
 					);
 				} )
@@ -66,7 +66,7 @@
 			Panel,
 			{ name: 'wprs-random-slug', title: __( 'Random slug', 'wp-random-slug' ), initialOpen: true },
 			el( Button, { variant: 'secondary', onClick: regenerate, isBusy: busy, disabled: busy }, __( 'Regenerate slug', 'wp-random-slug' ) ),
-			el( 'p', { className: 'description' }, __( 'Replaces the slug. Click "Update" to save.', 'wp-random-slug' ) )
+			el( 'p', { className: 'description' }, __( 'Replaces the slug. Save the post to apply it.', 'wp-random-slug' ) )
 		);
 	}
 

@@ -147,6 +147,56 @@ t_check( 'under /%postname%/: slug carrying another post ID is still de-conflict
 wp_update_post( array( 'ID' => $q, 'post_name' => '2026' ) );
 t_check( 'under /%postname%/: other numeric slug is still de-conflicted by WordPress', '2026' !== get_post( $q )->post_name, 'saved=' . get_post( $q )->post_name );
 
+// 下書き + ブロックエディター(REST)で保存: 本体は重複確認のため、下書きでもステータス publish として
+// wp_unique_post_slug() を呼ぶ。そのとき、エディターで選んだスラッグを別の乱数に差し替えない
+$rest_draft = t_post( 'draft' );
+$sent_slug  = '5678' . $today . $rest_draft;
+$request    = new WP_REST_Request( 'POST', '/wp/v2/posts/' . $rest_draft );
+$request->set_param( 'slug', $sent_slug );
+$response = rest_do_request( $request );
+$returned = $response->get_data();
+t_check( 'draft saved through the REST API keeps the slug chosen in the editor', 200 === $response->get_status() && $sent_slug === ( $returned['slug'] ?? '' ) && $sent_slug === get_post( $rest_draft )->post_name, 'sent=' . $sent_slug . ' returned=' . ( $returned['slug'] ?? '?' ) . ' db=' . get_post( $rest_draft )->post_name );
+
+// 下書き: ボタンで作ったスラッグを下書きに保存し、公開しても、そのスラッグが残る("-2" も付かない)
+$draft = t_post( 'draft' );
+list( $status, $data ) = t_request( $draft );
+t_check( 'draft: regenerate endpoint works', 200 === $status, "status=$status" );
+$draft_slug = is_array( $data ) ? ( $data['slug'] ?? '' ) : '';
+wp_update_post( array( 'ID' => $draft, 'post_name' => $draft_slug ) );
+t_check( 'draft: generated slug is saved with the draft', '' !== $draft_slug && get_post( $draft )->post_name === $draft_slug, 'saved=' . get_post( $draft )->post_name );
+wp_update_post( array( 'ID' => $draft, 'post_status' => 'publish' ) );
+t_check( 'draft -> publish under /%postname%/: the slug chosen in the draft is kept (no "-2")', get_post( $draft )->post_name === $draft_slug, 'published=' . get_post( $draft )->post_name . " wanted=$draft_slug" );
+
+// 既定のスラッグ: 作成時(下書き・「新規追加」の auto-draft)にランダムスラッグが保存され、以後は変わらない
+$created      = t_post( 'draft' );
+$default_slug = get_post( $created )->post_name;
+t_check( 'new draft gets the random slug at creation', 1 === preg_match( '/^\d{4}' . $today . $created . '$/', $default_slug ), "slug=$default_slug" );
+wp_update_post( array( 'ID' => $created, 'post_title' => 'Changed title' ) );
+t_check( 'default slug stays the same when the draft is saved again', '' !== $default_slug && $default_slug === get_post( $created )->post_name );
+wp_update_post( array( 'ID' => $created, 'post_status' => 'publish' ) );
+t_check( 'default slug is kept on publish under /%postname%/ (not regenerated, no "-2")', '' !== $default_slug && $default_slug === get_post( $created )->post_name, 'published=' . get_post( $created )->post_name );
+
+$auto = get_default_post_to_edit( 'post', true );
+$cleanup['posts'][] = $auto->ID;
+t_check( 'auto-draft (what "Add New" creates) gets the random slug', 1 === preg_match( '/^\d{4}' . $today . $auto->ID . '$/', get_post( $auto->ID )->post_name ), 'slug=' . get_post( $auto->ID )->post_name );
+
+$manual = wp_insert_post( array( 'post_title' => 'Manual', 'post_status' => 'draft', 'post_name' => 'my-manual-slug' ) );
+$cleanup['posts'][] = $manual;
+t_check( 'a slug given at creation is not overwritten', 'my-manual-slug' === get_post( $manual )->post_name, 'slug=' . get_post( $manual )->post_name );
+
+$draft_page = t_post( 'draft', 'page' );
+t_check( 'draft of a non-target type (page) is left alone', '' === get_post( $draft_page )->post_name, 'slug=' . get_post( $draft_page )->post_name );
+
+// 従来の動き(公開時に生成)は、スラッグの無い下書きのために残す
+remove_action( 'save_post', 'wprs_set_default_slug', 10 );
+$bare = t_post( 'draft' );
+if ( function_exists( 'wprs_set_default_slug' ) ) {
+    add_action( 'save_post', 'wprs_set_default_slug', 10, 2 );
+}
+t_check( 'fallback precondition: draft created without a default slug has an empty post_name', '' === get_post( $bare )->post_name );
+wp_update_post( array( 'ID' => $bare, 'post_status' => 'publish' ) );
+t_check( 'fallback: a draft without a slug still gets the random slug on publish', 1 === preg_match( '/^\d{4}' . $today . $bare . '$/', get_post( $bare )->post_name ), 'slug=' . get_post( $bare )->post_name );
+
 // 重複: すでに別の記事が同じスラッグを使っている(手入力・インポート済みなど)なら、重複回避を通す
 global $wpdb;
 $a = t_post( 'publish' );
@@ -203,7 +253,7 @@ wp_set_current_user( $admin );
 delete_option( 'wprs_post_types' );
 
 // --- クラシックエディター: メタボックス -------------------------------------
-foreach ( array( 'publish' => true, 'private' => true, 'draft' => false, 'pending' => false ) as $post_status => $expected ) {
+foreach ( array( 'publish' => true, 'private' => true, 'draft' => true, 'pending' => true, 'auto-draft' => false ) as $post_status => $expected ) {
     $id = t_post( $post_status );
     t_check( "classic meta box for post/$post_status: " . ( $expected ? 'shown' : 'hidden' ), t_has_meta_box( get_post( $id ), 'wprs_regenerate' ) === $expected );
 }

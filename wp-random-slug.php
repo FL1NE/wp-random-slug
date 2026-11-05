@@ -3,7 +3,7 @@
 * Plugin Name: wp-random-slug
 * Plugin URI: https://github.com/FL1NE/wp-random-slug/
 * Description: Auto slug generator for Wordpress.
-* Version: 0.0.4
+* Version: 0.1.0
 * Requires at least: 5.3
 * Requires PHP: 7.0
 * Author: Tomoki SHISHIKURA (FL1NE)
@@ -15,7 +15,7 @@
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 
-define( 'WPRS_VERSION', '0.0.4' );
+define( 'WPRS_VERSION', '0.1.0' );
 
 
 /**
@@ -54,13 +54,13 @@ function wprs_sanitize_post_types( $value ) {
 
 /**
  * 管理画面で「Slugを再生成」ボタンを出す記事ステータスか
- * 下書き等は公開時に自動でSlugが付くので出さない
+ * 下書きにも出す(公開前にSlugを揃えられる)。まだ保存されていない新規記事(auto-draft)とゴミ箱には出さない
  *
  * @param string $status 記事ステータス
  * @return bool
  */
 function wprs_is_regenerable_status( $status ) {
-    return in_array( $status, array( 'publish', 'private', 'future' ), true );
+    return ! in_array( $status, array( 'auto-draft', 'trash' ), true );
 }
 
 
@@ -119,6 +119,25 @@ function wprs_apply_random_slug( $slug, $post_ID, $post_status, $post_type, $pos
         return $slug;
     }
 
+    // この記事用に作ったSlug(乱数4桁 + 日付 + この記事のID)が渡された場合(エディターのボタンで作ったもの)は、そのまま使う。
+    // - WordPressは数字だけのSlugを、パーマリンクが /%postname%/ のとき日付アーカイブとの衝突を避けるため "-2" に変えてしまう。
+    // - ブロックエディターは下書きの保存でも、重複確認のため publish として呼ぶ。このとき作り直さず、選んだSlugを守る。
+    // 外すのは日付アーカイブとの衝突回避だけ。別の記事がすでに使っているSlug(手入力・インポート済みなど)は重複回避を通す。
+    if ( 1 === preg_match( '/^\d{12}' . (int) $post_ID . '$/', (string) $original_slug ) ) {
+        global $wpdb;
+        // WordPress本体の wp_unique_post_slug() と同じ検索。結果をキャッシュすると重複を見逃すので、直接問い合わせる。
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+        $used_by_other = $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT ID FROM {$wpdb->posts} WHERE post_name = %s AND post_type = %s AND ID != %d LIMIT 1",
+                $original_slug,
+                $post_type,
+                $post_ID
+            )
+        );
+        return $used_by_other ? $slug : $original_slug;
+    }
+
     // DBに保存されている記事を取得(グローバルの $post を参照しないよう、IDは必ず渡す)
     $post = get_post( $post_ID );
     if ( ! $post ) {
@@ -127,25 +146,6 @@ function wprs_apply_random_slug( $slug, $post_ID, $post_status, $post_type, $pos
 
     // すでにSlugがある場合(公開済み・下書き中に設定済み)は維持
     if ( '' !== $post->post_name ) {
-        // エディターのボタンで作ったSlug(乱数4桁 + 日付 + この記事のID)は、WordPressが付けた "-2" を外して元のまま使う。
-        // WordPressは、数字だけのSlugをパーマリンクが /%postname%/ のとき日付アーカイブとの衝突を避けるため変えてしまう。
-        // 外すのは日付アーカイブとの衝突回避だけ。別の記事がすでに使っているSlug(手入力・インポート済みなど)は重複回避を通す。
-        if ( 1 === preg_match( '/^\d{12}' . (int) $post_ID . '$/', (string) $original_slug ) ) {
-            global $wpdb;
-            // WordPress本体の wp_unique_post_slug() と同じ検索。結果をキャッシュすると重複を見逃すので、直接問い合わせる。
-            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-            $used_by_other = $wpdb->get_var(
-                $wpdb->prepare(
-                    "SELECT ID FROM {$wpdb->posts} WHERE post_name = %s AND post_type = %s AND ID != %d LIMIT 1",
-                    $original_slug,
-                    $post_type,
-                    $post_ID
-                )
-            );
-            if ( ! $used_by_other ) {
-                return $original_slug;
-            }
-        }
         return $slug;
     }
 
@@ -153,6 +153,33 @@ function wprs_apply_random_slug( $slug, $post_ID, $post_status, $post_type, $pos
 }
 
 add_filter( 'wp_unique_post_slug', 'wprs_apply_random_slug', 10, 6 );
+
+
+/**
+ * 記事の作成時に、既定のSlugとしてランダムSlugを保存する(save_post)
+ *
+ * 「新規追加」で作られる自動下書きや、下書きのSlugが空なら、その場でランダムSlugを入れる。
+ * エディターに最初から表示されるSlugが、そのまま公開後のURLになる(日付は作成日)。
+ * すでにSlugがある記事、対象外の投稿タイプ、公開済みの記事は何もしない。
+ *
+ * @param int     $post_ID 記事ID
+ * @param WP_Post $post    記事
+ */
+function wprs_set_default_slug( $post_ID, $post ) {
+    if ( ! in_array( $post->post_type, wprs_target_post_types(), true ) ) {
+        return;
+    }
+    if ( ! in_array( $post->post_status, array( 'auto-draft', 'draft', 'pending' ), true ) || '' !== $post->post_name ) {
+        return;
+    }
+    global $wpdb;
+    // save_post の中なので wp_update_post() は使わず(再帰と余計なリビジョンを避ける)、直接書き込む。
+    // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+    $wpdb->update( $wpdb->posts, array( 'post_name' => wprs_generate_slug( $post_ID ) ), array( 'ID' => $post_ID ) );
+    clean_post_cache( $post_ID );
+}
+
+add_action( 'save_post', 'wprs_set_default_slug', 10, 2 );
 
 
 /* ---------------------------------------------------------------------------
@@ -315,7 +342,7 @@ add_action( 'add_meta_boxes', 'wprs_add_meta_box', 10, 2 );
 
 function wprs_render_meta_box() {
     echo '<p><button type="button" class="button" id="wprs-regenerate">' . esc_html__( 'Regenerate slug', 'wp-random-slug' ) . '</button></p>';
-    echo '<p class="description">' . esc_html__( 'Replaces the slug field. Click "Update" to save.', 'wp-random-slug' ) . '</p>';
+    echo '<p class="description">' . esc_html__( 'Replaces the slug field. Save the post to apply it.', 'wp-random-slug' ) . '</p>';
 }
 
 

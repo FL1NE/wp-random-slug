@@ -13,7 +13,7 @@
 
 		$button.on( 'click', function () {
 			var message = __(
-				'Regenerate the slug? The URL will change after you click "Update". Visitors to the old URL are redirected automatically.',
+				'Regenerate the slug? The URL changes once you save the post. If it is already published, visitors to the old URL are redirected automatically.',
 				'wp-random-slug'
 			);
 			if ( ! window.confirm( message ) ) {
@@ -34,7 +34,7 @@
 					} );
 					$( '#wprs-regenerate-notice' ).remove();
 					$button.closest( '.inside' ).append(
-						$( '<p id="wprs-regenerate-notice" class="description">' ).text( __( 'Slug replaced. Click "Update" to save it.', 'wp-random-slug' ) )
+						$( '<p id="wprs-regenerate-notice" class="description">' ).text( __( 'Slug replaced. Save the post to apply it.', 'wp-random-slug' ) )
 					);
 				} )
 				.catch( function ( error ) {
