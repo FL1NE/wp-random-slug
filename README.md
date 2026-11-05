@@ -17,7 +17,7 @@ https://tomoki-shishikura.com/news/250420250403595/
   - A slug that was already saved (e.g. set manually while still a draft) is kept.
   - Published posts keep their slug, even if unpublished and published again.
 - Drafts are never touched.
-- Applies to `post` only by default.
+- Applies to `post` only by default. Choose the post types in **Settings > Random Slug** (custom post types such as `news` are listed too).
 - The date follows the WordPress timezone setting.
 - Posts inserted via `wp_insert_post()` without an ID (e.g. some importers, `wp post create`) are skipped, because the post ID is part of the slug.
 
@@ -34,7 +34,7 @@ The new slug comes from `POST /wp-json/wprs/v1/slug/<post id>` (requires permiss
 
 ## Customize
 
-Change the target post types with the `wprs_target_post_types` filter.
+The target post types are chosen in **Settings > Random Slug** (default: `post` only). To add post types from code, use the `wprs_target_post_types` filter. It is applied on top of the setting.
 
 ```php
 add_filter( 'wprs_target_post_types', function ( $post_types ) {

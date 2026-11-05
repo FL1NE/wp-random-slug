@@ -3,7 +3,7 @@ Tags: slug, permalink, random
 Requires at least: 5.3
 Tested up to: 7.1
 Requires PHP: 7.0
-Stable tag: 0.0.3
+Stable tag: 0.0.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -16,10 +16,14 @@ Sets a generated slug when a post is first published.
 Format: random 4 digits + date (Ymd) + post ID, e.g. `250420250403595`.
 
 * Applies only when the post has no slug yet. Existing slugs are kept.
-* Applies to `post` only by default. Use the `wprs_target_post_types` filter to change it.
+* Choose the target post types (including custom post types such as `news`) in Settings > Random Slug. Default: `post` only. The `wprs_target_post_types` filter is applied on top of the setting.
 * "Regenerate slug" button in the post editor (block editor and classic editor) to switch an existing post to the same format. It only replaces the slug in the editor; click "Update" to save. The old URL redirects to the new one.
 
 == Changelog ==
+
+= 0.0.4 =
+* Add: Settings > Random Slug page to choose the target post types, including custom post types (e.g. `news`).
+* Fix: when a generated slug is saved under `/%postname%/`, it is no longer used if another post already has the same slug (duplicate slugs).
 
 = 0.0.3 =
 * Add: "Regenerate slug" button for published posts. Block editor: "Random slug" panel in the Document sidebar. Classic editor: "Random slug" meta box.

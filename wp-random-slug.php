@@ -3,7 +3,7 @@
 * Plugin Name: wp-random-slug
 * Plugin URI: https://github.com/FL1NE/wp-random-slug/
 * Description: Auto slug generator for Wordpress.
-* Version: 0.0.3
+* Version: 0.0.4
 * Requires at least: 5.3
 * Requires PHP: 7.0
 * Author: Tomoki SHISHIKURA (FL1NE)
@@ -15,16 +15,40 @@
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 
-define( 'WPRS_VERSION', '0.0.3' );
+define( 'WPRS_VERSION', '0.0.4' );
 
 
 /**
- * Slugを自動設定する対象の投稿タイプ(wprs_target_post_types フィルタで変更可能)
+ * Slugを自動設定する対象の投稿タイプ
+ * 設定ページで選んだ値(未設定なら post のみ)に、wprs_target_post_types フィルタを重ねて適用する
  *
  * @return string[]
  */
 function wprs_target_post_types() {
-    return (array) apply_filters( 'wprs_target_post_types', array( 'post' ) );
+    return (array) apply_filters( 'wprs_target_post_types', (array) get_option( 'wprs_post_types', array( 'post' ) ) );
+}
+
+
+/**
+ * 設定ページで選べる投稿タイプ(公開されているもの。添付ファイルは除く)
+ *
+ * @return WP_Post_Type[] スラッグをキーにした配列
+ */
+function wprs_selectable_post_types() {
+    $post_types = get_post_types( array( 'public' => true ), 'objects' );
+    unset( $post_types['attachment'] );
+    return $post_types;
+}
+
+
+/**
+ * 設定値の検証: 選べる投稿タイプだけを残す。チェックが1つも無い場合(未送信)は空にする
+ *
+ * @param mixed $value 送信された値
+ * @return string[]
+ */
+function wprs_sanitize_post_types( $value ) {
+    return array_values( array_intersect( (array) $value, array_keys( wprs_selectable_post_types() ) ) );
 }
 
 
@@ -105,9 +129,22 @@ function wprs_apply_random_slug( $slug, $post_ID, $post_status, $post_type, $pos
     if ( '' !== $post->post_name ) {
         // エディターのボタンで作ったSlug(乱数4桁 + 日付 + この記事のID)は、WordPressが付けた "-2" を外して元のまま使う。
         // WordPressは、数字だけのSlugをパーマリンクが /%postname%/ のとき日付アーカイブとの衝突を避けるため変えてしまう。
-        // この記事のIDを含むので、他の記事とは重複しない。
+        // 外すのは日付アーカイブとの衝突回避だけ。別の記事がすでに使っているSlug(手入力・インポート済みなど)は重複回避を通す。
         if ( 1 === preg_match( '/^\d{12}' . (int) $post_ID . '$/', (string) $original_slug ) ) {
-            return $original_slug;
+            global $wpdb;
+            // WordPress本体の wp_unique_post_slug() と同じ検索。結果をキャッシュすると重複を見逃すので、直接問い合わせる。
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+            $used_by_other = $wpdb->get_var(
+                $wpdb->prepare(
+                    "SELECT ID FROM {$wpdb->posts} WHERE post_name = %s AND post_type = %s AND ID != %d LIMIT 1",
+                    $original_slug,
+                    $post_type,
+                    $post_ID
+                )
+            );
+            if ( ! $used_by_other ) {
+                return $original_slug;
+            }
         }
         return $slug;
     }
@@ -116,6 +153,62 @@ function wprs_apply_random_slug( $slug, $post_ID, $post_status, $post_type, $pos
 }
 
 add_filter( 'wp_unique_post_slug', 'wprs_apply_random_slug', 10, 6 );
+
+
+/* ---------------------------------------------------------------------------
+ * 管理画面: 設定ページ(設定 > Random Slug)で、対象の投稿タイプを選ぶ
+ * ------------------------------------------------------------------------- */
+
+function wprs_register_settings() {
+    register_setting(
+        'wprs',
+        'wprs_post_types',
+        array(
+            'type'              => 'array',
+            'sanitize_callback' => 'wprs_sanitize_post_types',
+            'default'           => array( 'post' ),
+        )
+    );
+}
+add_action( 'admin_init', 'wprs_register_settings' );
+
+
+function wprs_add_settings_page() {
+    add_options_page(
+        __( 'Random Slug', 'wp-random-slug' ),
+        __( 'Random Slug', 'wp-random-slug' ),
+        'manage_options',
+        'wprs-settings',
+        'wprs_render_settings_page'
+    );
+}
+add_action( 'admin_menu', 'wprs_add_settings_page' );
+
+
+function wprs_render_settings_page() {
+    if ( ! current_user_can( 'manage_options' ) ) {
+        return;
+    }
+    $selected = (array) get_option( 'wprs_post_types', array( 'post' ) );
+
+    echo '<div class="wrap"><h1>' . esc_html__( 'Random Slug', 'wp-random-slug' ) . '</h1>';
+    echo '<form method="post" action="options.php">';
+    settings_fields( 'wprs' );
+    echo '<h2 class="title">' . esc_html__( 'Target post types', 'wp-random-slug' ) . '</h2>';
+    echo '<p>' . esc_html__( 'A random slug is set when a post of the selected types is first published. The "Regenerate slug" button is shown for these types as well.', 'wp-random-slug' ) . '</p>';
+    echo '<fieldset>';
+    foreach ( wprs_selectable_post_types() as $slug => $post_type ) {
+        printf(
+            '<label><input type="checkbox" name="wprs_post_types[]" value="%1$s" %2$s> %3$s <code>%1$s</code></label><br>',
+            esc_attr( $slug ),
+            checked( in_array( $slug, $selected, true ), true, false ),
+            esc_html( $post_type->labels->name )
+        );
+    }
+    echo '</fieldset>';
+    submit_button();
+    echo '</form></div>';
+}
 
 
 /* ---------------------------------------------------------------------------

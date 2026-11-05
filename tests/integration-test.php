@@ -44,6 +44,23 @@ function t_request( $post_id ) {
     return array( $response->get_status(), $response->get_data() );
 }
 
+// 関数が未実装でも致命的エラーで止まらず、FAIL として数えるため
+function t_call( $function, ...$args ) {
+    return function_exists( $function ) ? $function( ...$args ) : null;
+}
+
+function t_has_settings_page() {
+    global $submenu;
+    $submenu = array();
+    do_action( 'admin_menu' );
+    foreach ( (array) ( $submenu['options-general.php'] ?? array() ) as $item ) {
+        if ( 'wprs-settings' === $item[2] ) {
+            return true;
+        }
+    }
+    return false;
+}
+
 function t_has_meta_box( $post, $box_id ) {
     global $wp_meta_boxes;
     $wp_meta_boxes = array();
@@ -62,6 +79,10 @@ function t_has_meta_box( $post, $box_id ) {
 // パーマリンク設定でスラッグの扱いが変わるので、プレーンに固定して始め、最後に元へ戻す
 $original_structure = get_option( 'permalink_structure' );
 update_option( 'permalink_structure', '' );
+
+// 設定は未設定(既定)から始める。カスタム投稿タイプ news を用意する
+delete_option( 'wprs_post_types' );
+register_post_type( 'news', array( 'public' => true, 'label' => 'News' ) );
 
 $admin = t_user( 'administrator' );
 wp_set_current_user( $admin );
@@ -126,7 +147,60 @@ t_check( 'under /%postname%/: slug carrying another post ID is still de-conflict
 wp_update_post( array( 'ID' => $q, 'post_name' => '2026' ) );
 t_check( 'under /%postname%/: other numeric slug is still de-conflicted by WordPress', '2026' !== get_post( $q )->post_name, 'saved=' . get_post( $q )->post_name );
 
+// 重複: すでに別の記事が同じスラッグを使っている(手入力・インポート済みなど)なら、重複回避を通す
+global $wpdb;
+$a = t_post( 'publish' );
+$b = t_post( 'publish' );
+$taken = '5678' . $today . $a;
+$wpdb->update( $wpdb->posts, array( 'post_name' => $taken ), array( 'ID' => $b ) );
+clean_post_cache( $b );
+wp_update_post( array( 'ID' => $a, 'post_name' => $taken ) );
+t_check( 'under /%postname%/: own-format slug already used by another post is not duplicated', get_post( $a )->post_name !== $taken, 'saved=' . get_post( $a )->post_name );
+
 update_option( 'permalink_structure', '' );
+
+// --- 設定: 対象の投稿タイプ ------------------------------------------------
+t_check( 'default target is post only (option not set)', array( 'post' ) === t_call( 'wprs_target_post_types' ) );
+
+update_option( 'wprs_post_types', array( 'news' ) );
+$n = t_post( 'draft', 'news' );
+wp_update_post( array( 'ID' => $n, 'post_status' => 'publish' ) );
+t_check( 'selected type (news) gets the random slug on first publish', 1 === preg_match( '/^\d{4}' . $today . $n . '$/', get_post( $n )->post_name ), 'slug=' . get_post( $n )->post_name );
+list( $status ) = t_request( $n );
+t_check( 'selected type (news): regenerate endpoint works', 200 === $status, "status=$status" );
+t_check( 'selected type (news): classic meta box shown', true === t_has_meta_box( get_post( $n ), 'wprs_regenerate' ) );
+
+$d = t_post( 'draft' );
+wp_update_post( array( 'ID' => $d, 'post_status' => 'publish' ) );
+t_check( 'deselected type (post) keeps the WordPress slug', 1 !== preg_match( '/^\d{4}' . $today . $d . '$/', get_post( $d )->post_name ), 'slug=' . get_post( $d )->post_name );
+list( $status ) = t_request( $d );
+t_check( 'deselected type (post): regenerate endpoint -> 400', 400 === $status, "status=$status" );
+
+update_option( 'wprs_post_types', array() );
+$e = t_post( 'draft', 'news' );
+wp_update_post( array( 'ID' => $e, 'post_status' => 'publish' ) );
+t_check( 'nothing selected: no post type is touched', 1 !== preg_match( '/^\d{4}' . $today . $e . '$/', get_post( $e )->post_name ), 'slug=' . get_post( $e )->post_name );
+
+t_check( 'sanitize keeps only registered public post types, drops attachment', array( 'news', 'post' ) === t_call( 'wprs_sanitize_post_types', array( 'news', 'bogus', 'attachment', 'post' ) ) );
+t_check( 'sanitize: nothing submitted (all unchecked) -> empty list', array() === t_call( 'wprs_sanitize_post_types', null ) );
+
+update_option( 'wprs_post_types', array( 'news' ) );
+ob_start();
+t_call( 'wprs_render_settings_page' );
+$html = ob_get_clean();
+t_check( 'settings page: selected type is checked', 1 === preg_match( '/value="news"[^>]*checked/', $html ) );
+t_check( 'settings page: other public type is listed, unchecked', 1 === preg_match( '/value="post"/', $html ) && 1 !== preg_match( '/value="post"[^>]*checked/', $html ) );
+t_check( 'settings page: attachment is not offered', false === strpos( $html, 'value="attachment"' ) );
+
+t_check( 'settings page is in the menu for administrators', true === t_has_settings_page() );
+wp_set_current_user( t_user( 'editor' ) );
+ob_start();
+t_call( 'wprs_render_settings_page' );
+t_check( 'settings page renders nothing for editors', '' === ob_get_clean() );
+t_check( 'settings page is not in the menu for editors', false === t_has_settings_page() );
+wp_set_current_user( $admin );
+
+delete_option( 'wprs_post_types' );
 
 // --- クラシックエディター: メタボックス -------------------------------------
 foreach ( array( 'publish' => true, 'private' => true, 'draft' => false, 'pending' => false ) as $post_status => $expected ) {
