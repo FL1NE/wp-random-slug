@@ -21,6 +21,17 @@ https://tomoki-shishikura.com/news/250420250403595/
 - The date follows the WordPress timezone setting.
 - Posts inserted via `wp_insert_post()` without an ID (e.g. some importers, `wp post create`) are skipped, because the post ID is part of the slug.
 
+## Regenerate the slug of an existing post
+
+To switch an already published post to the same format, use the **Regenerate slug** button.
+
+- Block editor: "Random slug" panel in the Document sidebar.
+- Classic editor: "Random slug" meta box in the side column.
+
+The button only replaces the slug in the editor, it does not save. Click **Update** to save it. WordPress redirects the old URL to the new one. The button is shown for published, private and scheduled posts of the target post types (drafts get their slug when published).
+
+The new slug comes from `POST /wp-json/wprs/v1/slug/<post id>` (requires permission to edit the post). It does not save anything.
+
 ## Customize
 
 Change the target post types with the `wprs_target_post_types` filter.
@@ -30,6 +41,14 @@ add_filter( 'wprs_target_post_types', function ( $post_types ) {
     $post_types[] = 'page';
     return $post_types;
 } );
+```
+
+## Tests
+
+Integration tests run against a real WordPress with the plugin active (they create and delete their own posts and users).
+
+```
+wp eval-file wp-content/plugins/wp-random-slug/tests/integration-test.php
 ```
 
 ## Requirements

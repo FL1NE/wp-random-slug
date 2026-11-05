@@ -3,7 +3,7 @@ Tags: slug, permalink, random
 Requires at least: 5.3
 Tested up to: 7.1
 Requires PHP: 7.0
-Stable tag: 0.0.2
+Stable tag: 0.0.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -17,8 +17,15 @@ Format: random 4 digits + date (Ymd) + post ID, e.g. `250420250403595`.
 
 * Applies only when the post has no slug yet. Existing slugs are kept.
 * Applies to `post` only by default. Use the `wprs_target_post_types` filter to change it.
+* "Regenerate slug" button in the post editor (block editor and classic editor) to switch an existing post to the same format. It only replaces the slug in the editor; click "Update" to save. The old URL redirects to the new one.
 
 == Changelog ==
+
+= 0.0.3 =
+* Add: "Regenerate slug" button for published posts. Block editor: "Random slug" panel in the Document sidebar. Classic editor: "Random slug" meta box.
+* Add: REST endpoint `POST /wprs/v1/slug/<post id>` that returns a new slug without saving it (requires permission to edit the post).
+* Fix: a slug made for the post is no longer changed to `...-2` by WordPress when the permalink structure is `/%postname%/`.
+* Add: integration tests (`tests/integration-test.php`, run with `wp eval-file`).
 
 = 0.0.2 =
 * Fix: skip when the post ID is 0 or the post cannot be loaded (avoids reading the global `$post` and PHP warnings).
